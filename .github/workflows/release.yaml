@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'installer.py'
+      - 'requirements.txt'
+      - '.digest'
+      - 'jagex/'
+      - '.github/workflows/release.yaml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate release
+        id: generate
+        run: |
+          set -euo pipefail
+          HASH=$(cat .digest)
+          PREVPWD=$(pwd)
+          TMPDIR=$(mktemp -d)
+          cd $TMPDIR
+          python $PREVPWD/installer.py --hash $HASH -v
+          tar -czf $PREVPWD/launcher-$(cat .version).tar.gz .
+          cd $PREVPWD
+          echo "version=$(cat $TMPDIR/.version)" >> $GITHUB_OUTPUT
+          echo "output=launcher-$(cat $TMPDIR/.version).tar.gz" >> $GITHUB_OUTPUT
+          rm -rf $TMPDIR
+
+      - name: Check version tag
+        id: check_tag
+        env:
+          VERSION: ${{ steps.generate.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Check if the git tag exists with the same name as VERSION
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release
+        if: steps.check_tag.outputs.tag_exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ steps.generate.outputs.version }}
+        run: |
+          gh release create "$tag" \
+              --repo="$GITHUB_REPOSITORY" \
+              --title="Jagex Launcher $tag"
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+
+      - name: Upload Build
+        if: steps.check_tag.outputs.tag_exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ steps.generate.outputs.version }}
+          output: ${{ steps.generate.outputs.output }}
+        run:
+          gh release upload "$tag" --repo="$GITHUB_REPOSITORY" $output
