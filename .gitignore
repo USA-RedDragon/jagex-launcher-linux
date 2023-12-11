@@ -1,0 +1,4 @@
+venv/
+installer/
+__pycache__/
+*.pyc

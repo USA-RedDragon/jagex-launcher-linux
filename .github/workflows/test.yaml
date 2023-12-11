@@ -1,0 +1,33 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build test
+        run: |
+          set -euo pipefail
+          PREVPWD=$(pwd)
+          TMPDIR=$(mktemp -d)
+          cd $TMPDIR
+          python $PREVPWD/installer.py -v
+          if [ ! -f $TMPDIR/JagexLauncher.exe ]; then
+            echo "JagexLauncher.exe not found!"
+            exit 1
+          fi
+          cd $PREVPWD
+          rm -rf $TMPDIR
